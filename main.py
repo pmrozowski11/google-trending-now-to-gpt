@@ -21,16 +21,18 @@ def get_trends():
 
         response = requests.post(url, data=data, headers=headers)
         if response.status_code != 200:
-            return {"error": f"HTTP {response.status_code}"}
+            return {"error": f"HTTP {response.status_code}", "body": response.text[:300]}
 
-        # usuń prefix ")]}'\n" i wyciągnij właściwy JSON
-        body = response.text
+        body = response.text.strip()
+        if not "wrb.fr" in body:
+            return {"error": "Nie znaleziono danych trends w odpowiedzi", "body": body[:300]}
+
+        import re
         cleaned = re.sub(r"^\)\]\}'\n\d+\n", "", body)
         json_blob = json.loads(cleaned)
         inner_json_str = json_blob[0][2]
         inner_json = json.loads(inner_json_str)
 
-        # Parsowanie głównych tematów
         topic_data = inner_json[0]
         topic_names = []
 
@@ -40,7 +42,7 @@ def get_trends():
                 if isinstance(title, str):
                     topic_names.append(title)
 
-        return {"trendy": topic_names[:10]}  # top 10 trendów
+        return {"trendy": topic_names[:10]}
 
     except Exception as e:
         return {"error": str(e)}
