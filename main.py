@@ -1,32 +1,46 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-import asyncio
-from playwright.async_api import async_playwright
+import requests
+import json
+import re
 
 app = FastAPI()
 app.add_middleware(CORSMiddleware, allow_origins=["*"])
 
 @app.get("/trendy")
-async def get_trends():
+def get_trends():
     try:
-        async with async_playwright() as p:
-            browser = await p.chromium.launch()
-            context = await browser.new_context(user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36")
-            page = await context.new_page()
-            await page.goto("https://trends.google.com/trending?geo=PL&category=6", timeout=60000)
-            
-            # Poczekaj na jakikolwiek tekst z trendów
-            await page.wait_for_selector("div.feed-item span.title", timeout=60000)
+        url = "https://trends.google.com/_/TrendsUi/data/batchexecute?rpcids=g4kJzf&source-path=%2Ftrending&hl=pl&bl=boq_trends-boq-servers-frontend_20250506.03_p0"
+        headers = {
+            "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
+            "User-Agent": "Mozilla/5.0"
+        }
+        data = {
+            "f.req": '[[["g4kJzf","[[null,null,[6],[],[]]]",null,"generic"]]]'
+        }
 
-            items = await page.query_selector_all("div.feed-item")
-            trendy = []
-            for item in items[:10]:
-                title_el = await item.query_selector("span.title")
-                if title_el:
-                    title = await title_el.inner_text()
-                    trendy.append(title.strip())
-            await browser.close()
-            return {"trendy": trendy}
+        response = requests.post(url, data=data, headers=headers)
+        if response.status_code != 200:
+            return {"error": f"HTTP {response.status_code}"}
+
+        # usuń prefix ")]}'\n" i wyciągnij właściwy JSON
+        body = response.text
+        cleaned = re.sub(r"^\)\]\}'\n\d+\n", "", body)
+        json_blob = json.loads(cleaned)
+        inner_json_str = json_blob[0][2]
+        inner_json = json.loads(inner_json_str)
+
+        # Parsowanie głównych tematów
+        topic_data = inner_json[0]
+        topic_names = []
+
+        for entry in topic_data:
+            if entry and isinstance(entry, list) and len(entry) > 0:
+                title = entry[0]
+                if isinstance(title, str):
+                    topic_names.append(title)
+
+        return {"trendy": topic_names[:10]}  # top 10 trendów
+
     except Exception as e:
         return {"error": str(e)}
-
